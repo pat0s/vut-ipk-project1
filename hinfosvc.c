@@ -39,21 +39,69 @@ int getHostname(char *hostname)
 	return 0;
 }
 
-// TODO
-int getCPUusage()
+// Convert strings to long long int
+void stringToLongLongInt(char *cpuName, unsigned long long int *idle, unsigned long long int *total)
+{
+	char tmp[100] = "\0";
+	char *eptr;
+	int pos = 0;
+
+	for (unsigned int i = 5; i < strlen(cpuName); i++)
+	{
+		if (cpuName[i] == ' ' || cpuName[i] == '\n')
+		{
+			if (pos == 3 || pos == 4)
+			{
+				*idle += strtoll(tmp, &eptr, 10);
+				*total += strtoll(tmp, &eptr, 10);
+			}
+			else if (pos <= 7)
+			{
+				*total += strtoll(tmp, &eptr, 10);
+			}
+			memset(tmp, '\0', 100);
+			pos++;	
+		}	
+		else
+		{
+			strncat(tmp, &cpuName[i], 1);
+			strcat(tmp, "\0");
+		}
+			
+	}	
+}
+
+int getCPUusage(char *cpuUsage)
 {
 	char cpuName[201];
+	char cpuNamePrev[201];
 	FILE *file;
 
-	file = popen("cat /proc/stat", "r");
+	file = popen("cat /proc/stat | grep cpu | head -n -1" , "r");
+	if (file == NULL) return 1;
 
+	fgets(cpuNamePrev, 200, file);
+	pclose(file);
+
+	sleep(1);
+	
+	file = popen("cat /proc/stat | grep cpu | head -n -1" , "r");
 	if (file == NULL) return 1;
 
 	fgets(cpuName, 200, file);
-	printf("%s", cpuName);
-
 	pclose(file);
+
+	unsigned long long int idle = 0;
+	unsigned long long int prevIdle = 0;
+	unsigned long long int total = 0;
+	unsigned long long int prevTotal = 0;
+
+	stringToLongLongInt(cpuNamePrev, &prevIdle, &prevTotal);
+	stringToLongLongInt(cpuName, &idle, &total);
 	
+	memset(cpuUsage, '\0', 10);
+	sprintf(cpuUsage, "%.2lf%%", (total - prevTotal - (idle - prevIdle))/(double)(total-prevTotal)*100);
+		
 	return 0;
 }
 
@@ -71,10 +119,10 @@ int main(int argc, char *argv[])
 	int port = atoi(argv[1]);
 	char hostname[200];
 	char cpuName[200];
+	char cpuUsage[10];
 
 	getCPUInfo(cpuName);
 	getHostname(hostname);
-	getCPUusage();
 	
 	const int enabled = 1;
 	int mySocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -139,7 +187,8 @@ int main(int argc, char *argv[])
 		else if (strncmp(clientMessage, "GET /load", 9) == 0) 
 		{
 			strcat(messageToSend, goodHeader);
-			strcat(messageToSend, "Usage\0");
+			getCPUusage(cpuUsage);
+			strcat(messageToSend, cpuUsage);
 		}
 		else if (strncmp(clientMessage, "GET /cpu-name", 13) == 0)
 		{	
@@ -148,7 +197,7 @@ int main(int argc, char *argv[])
 		}
 		else
 		{
-			strcat(messageToSend, """HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain;\r\n\r\nBad Request");	
+			sprintf(messageToSend, "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain;\r\n\r\nBad Request");	
 		}
 		
 		// Write message to client

@@ -113,16 +113,15 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 	
-	// TODO delete
-	fprintf(stderr, "Everything works fine. Server is running!\n");
-	
 	char clientMessage[2001];
 	// TODO don't know if ";" is necessary behind text/plain 
-	char messageToSend[1001] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain;\r\n\r\n";
+	char goodHeader[50] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain;\r\n\r\n";
+	char messageToSend[501] = "\0";
 	int length = sizeof(mySocketAddr);
 	
 	while (1)
 	{
+		// Client Socket
 		int clientSocket = accept(mySocket, (struct sockaddr *)&mySocketAddr, (socklen_t *)&length);
 		if (clientSocket == -1)
 		{
@@ -130,18 +129,34 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 		err = recv(clientSocket, clientMessage, 2000, 0);
-		
-		// TODO compare user mesage with strncmp - load, cpu-name, hostname
-		strcat(messageToSend, hostname);
 
-		// TODO delete
-		fprintf(stderr, messageToSend);
-		fprintf(stderr, "%s", clientMessage);
+		// hostname, load, cpu-name
+		if (strncmp(clientMessage, "GET /hostname", 13) == 0) 
+		{
+			strcat(messageToSend, goodHeader);
+			strcat(messageToSend, hostname);
+		}
+		else if (strncmp(clientMessage, "GET /load", 9) == 0) 
+		{
+			strcat(messageToSend, goodHeader);
+			strcat(messageToSend, "Usage\0");
+		}
+		else if (strncmp(clientMessage, "GET /cpu-name", 13) == 0)
+		{	
+			strcat(messageToSend, goodHeader);
+			strcat(messageToSend, cpuName);
+		}
+		else
+		{
+			strcat(messageToSend, """HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain;\r\n\r\nBad Request");	
+		}
 		
 		// Write message to client
 		write(clientSocket, messageToSend, strlen(messageToSend));
 		// Close connection with client
 		close(clientSocket);
+		// Clear messageToSend buffer
+		memset(messageToSend, '\0', 501);
 	}
 
 	close(mySocket);

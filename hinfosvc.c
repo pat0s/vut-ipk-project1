@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 // Get CPU info
 int getCPUInfo(char *cpuName)
@@ -12,11 +13,9 @@ int getCPUInfo(char *cpuName)
 
 	file = popen("cat /proc/cpuinfo | grep \"model name\" | head -n 1 | awk -F \": \" '{print $2}'", "r");
 
-	if (file == NULL) return 1;
+	if (file == NULL) exit(1);
 
 	fgets(cpuName, 200, file);
-	//printf("%s", cpuName);
-
 	pclose(file);
 	
 	return 0;
@@ -29,11 +28,9 @@ int getHostname(char *hostname)
 
 	file = popen("cat /proc/sys/kernel/hostname", "r");
 
-	if (file == NULL) return 1;
+	if (file == NULL) exit(1);
 
 	fgets(hostname, 200, file);
-	//printf("%s", hostname);
-
 	pclose(file);
 	
 	return 0;
@@ -78,7 +75,7 @@ int getCPUusage(char *cpuUsage)
 	FILE *file;
 
 	file = popen("cat /proc/stat | grep cpu | head -n -1" , "r");
-	if (file == NULL) return 1;
+	if (file == NULL) exit(1);
 
 	fgets(cpuNamePrev, 200, file);
 	pclose(file);
@@ -129,14 +126,14 @@ int main(int argc, char *argv[])
 	if (mySocket == -1)
 	{
 		fprintf(stderr, "ERROR: Cannot open new socket!\n");
-		return 1;
+		exit(1);
 	}
 	
 	int err = setsockopt(mySocket, SOL_SOCKET, SO_REUSEADDR|SO_REUSEPORT, &enabled, sizeof(enabled));
 	if (err == -1)
 	{
 		fprintf(stderr, "ERROR: Cannot set options on socket\n");
-		return 1;
+		exit(1);
 	}
 	
 	struct sockaddr_in mySocketAddr;
@@ -144,25 +141,23 @@ int main(int argc, char *argv[])
 	mySocketAddr.sin_addr.s_addr = INADDR_ANY;
 	mySocketAddr.sin_port = htons(port);
 	
+	// Binding
 	err = bind(mySocket, (struct sockaddr *)&mySocketAddr, sizeof(mySocketAddr));
 	if (err == -1) 
 	{
 		fprintf(stderr, "ERROR: Binding!");
-		return 1;
+		exit(1);
 	}
 
-	// TODO - second argument = int backLog -> defins the maximum
-	// length to which the queue of pending connections for socket
-	// may grow
+	// Listening
 	err = listen(mySocket, 5);
 	if (err == -1)
 	{
 		fprintf(stderr, "ERROR: Cannot listen for connections on a socket!");
-		return 1;
+		exit(1);
 	}
 	
 	char clientMessage[2001];
-	// TODO don't know if ";" is necessary behind text/plain 
 	char goodHeader[50] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain;\r\n\r\n";
 	char messageToSend[501] = "\0";
 	int length = sizeof(mySocketAddr);
@@ -174,23 +169,23 @@ int main(int argc, char *argv[])
 		if (clientSocket == -1)
 		{
 			fprintf(stderr, "Accept connection failed\n");
-			return 1;
+			exit(1);
 		}
 		err = recv(clientSocket, clientMessage, 2000, 0);
 
 		// hostname, load, cpu-name
-		if (strncmp(clientMessage, "GET /hostname", 13) == 0) 
+		if (strncmp(clientMessage, "GET /hostname ", 14) == 0) 
 		{
 			strcat(messageToSend, goodHeader);
 			strcat(messageToSend, hostname);
 		}
-		else if (strncmp(clientMessage, "GET /load", 9) == 0) 
+		else if (strncmp(clientMessage, "GET /load ", 10) == 0) 
 		{
 			strcat(messageToSend, goodHeader);
 			getCPUusage(cpuUsage);
 			strcat(messageToSend, cpuUsage);
 		}
-		else if (strncmp(clientMessage, "GET /cpu-name", 13) == 0)
+		else if (strncmp(clientMessage, "GET /cpu-name ", 14) == 0)
 		{	
 			strcat(messageToSend, goodHeader);
 			strcat(messageToSend, cpuName);

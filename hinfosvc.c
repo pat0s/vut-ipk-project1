@@ -36,7 +36,7 @@ int getHostname(char *hostname)
 	return 0;
 }
 
-// Convert strings to long long int
+// Convert string to unsigned long long int
 void stringToLongLongInt(char *cpuName, unsigned long long int *idle, unsigned long long int *total)
 {
 	char tmp[100] = "\0";
@@ -64,20 +64,20 @@ void stringToLongLongInt(char *cpuName, unsigned long long int *idle, unsigned l
 			strncat(tmp, &cpuName[i], 1);
 			strcat(tmp, "\0");
 		}
-			
 	}	
 }
 
+// Calculate CPU usage
 int getCPUusage(char *cpuUsage)
 {
-	char cpuName[201];
-	char cpuNamePrev[201];
+	char cpuInfo[201];
+	char cpuInfoPrev[201];
 	FILE *file;
 
 	file = popen("cat /proc/stat | grep cpu | head -n -1" , "r");
 	if (file == NULL) exit(1);
 
-	fgets(cpuNamePrev, 200, file);
+	fgets(cpuInfoPrev, 200, file);
 	pclose(file);
 
 	sleep(1);
@@ -85,7 +85,7 @@ int getCPUusage(char *cpuUsage)
 	file = popen("cat /proc/stat | grep cpu | head -n -1" , "r");
 	if (file == NULL) return 1;
 
-	fgets(cpuName, 200, file);
+	fgets(cpuInfo, 200, file);
 	pclose(file);
 
 	unsigned long long int idle = 0;
@@ -93,8 +93,8 @@ int getCPUusage(char *cpuUsage)
 	unsigned long long int total = 0;
 	unsigned long long int prevTotal = 0;
 
-	stringToLongLongInt(cpuNamePrev, &prevIdle, &prevTotal);
-	stringToLongLongInt(cpuName, &idle, &total);
+	stringToLongLongInt(cpuInfoPrev, &prevIdle, &prevTotal);
+	stringToLongLongInt(cpuInfo, &idle, &total);
 	
 	memset(cpuUsage, '\0', 10);
 	sprintf(cpuUsage, "%.2lf%%", (total - prevTotal - (idle - prevIdle))/(double)(total-prevTotal)*100);
@@ -109,7 +109,7 @@ int main(int argc, char *argv[])
 	if (argc < 2)
 	{
 		fprintf(stderr, "ERROR: No port number!\n");
-		return 1;
+		exit(1);
 	}
 	
 	// Port number, hostname, cpu-name
@@ -121,7 +121,6 @@ int main(int argc, char *argv[])
 	getCPUInfo(cpuName);
 	getHostname(hostname);
 	
-	const int enabled = 1;
 	int mySocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (mySocket == -1)
 	{
@@ -129,6 +128,8 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 	
+	// Set options on socket
+	const int enabled = 1;
 	int err = setsockopt(mySocket, SOL_SOCKET, SO_REUSEADDR|SO_REUSEPORT, &enabled, sizeof(enabled));
 	if (err == -1)
 	{
@@ -136,6 +137,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 	
+	// Address structure
 	struct sockaddr_in mySocketAddr;
 	mySocketAddr.sin_family = AF_INET;
 	mySocketAddr.sin_addr.s_addr = INADDR_ANY;
@@ -149,7 +151,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	// Listening
+	// Listening for connections on a socket
 	err = listen(mySocket, 5);
 	if (err == -1)
 	{
@@ -173,7 +175,7 @@ int main(int argc, char *argv[])
 		}
 		err = recv(clientSocket, clientMessage, 2000, 0);
 
-		// hostname, load, cpu-name
+		// Requests - hostname, load, cpu-name, bad request
 		if (strncmp(clientMessage, "GET /hostname ", 14) == 0) 
 		{
 			strcat(messageToSend, goodHeader);
@@ -195,7 +197,7 @@ int main(int argc, char *argv[])
 			sprintf(messageToSend, "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain;\r\n\r\nBad Request");	
 		}
 		
-		// Write message to client
+		// Send message to client
 		write(clientSocket, messageToSend, strlen(messageToSend));
 		// Close connection with client
 		close(clientSocket);

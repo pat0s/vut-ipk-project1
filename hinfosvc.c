@@ -6,6 +6,11 @@
 #include <string.h>
 #include <unistd.h>
 
+// Buffers sizes
+#define MAX_INFO 200
+#define MAX_MSG 2000
+#define MAX_CPU_INFO 10
+
 // Get CPU info
 int getCPUInfo(char *cpuName)
 {		
@@ -15,7 +20,8 @@ int getCPUInfo(char *cpuName)
 
 	if (file == NULL) exit(1);
 
-	fgets(cpuName, 200, file);
+	fgets(cpuName, MAX_INFO, file);
+	cpuName[strlen(cpuName)-1] = '\0';
 	pclose(file);
 	
 	return 0;
@@ -30,7 +36,8 @@ int getHostname(char *hostname)
 
 	if (file == NULL) exit(1);
 
-	fgets(hostname, 200, file);
+	fgets(hostname, MAX_INFO, file);
+	hostname[strlen(hostname)-1] = '\0';
 	pclose(file);
 	
 	return 0;
@@ -70,14 +77,14 @@ void stringToLongLongInt(char *cpuName, unsigned long long int *idle, unsigned l
 // Calculate CPU usage
 int getCPUusage(char *cpuUsage)
 {
-	char cpuInfo[201];
-	char cpuInfoPrev[201];
+	char cpuInfo[MAX_INFO+1];
+	char cpuInfoPrev[MAX_INFO+1];
 	FILE *file;
 
 	file = popen("cat /proc/stat | grep cpu | head -n -1" , "r");
 	if (file == NULL) exit(1);
 
-	fgets(cpuInfoPrev, 200, file);
+	fgets(cpuInfoPrev, MAX_INFO, file);
 	pclose(file);
 
 	sleep(1);
@@ -85,7 +92,7 @@ int getCPUusage(char *cpuUsage)
 	file = popen("cat /proc/stat | grep cpu | head -n -1" , "r");
 	if (file == NULL) return 1;
 
-	fgets(cpuInfo, 200, file);
+	fgets(cpuInfo, MAX_INFO, file);
 	pclose(file);
 
 	unsigned long long int idle = 0;
@@ -96,7 +103,7 @@ int getCPUusage(char *cpuUsage)
 	stringToLongLongInt(cpuInfoPrev, &prevIdle, &prevTotal);
 	stringToLongLongInt(cpuInfo, &idle, &total);
 	
-	memset(cpuUsage, '\0', 10);
+	memset(cpuUsage, '\0', MAX_CPU_INFO);
 	sprintf(cpuUsage, "%.2lf%%", (total - prevTotal - (idle - prevIdle))/(double)(total-prevTotal)*100);
 		
 	return 0;
@@ -114,15 +121,15 @@ int main(int argc, char *argv[])
 	
 	// Port number, hostname, cpu-name
 	int port = atoi(argv[1]);
-	char hostname[200];
-	char cpuName[200];
-	char cpuUsage[10];
+	char hostname[MAX_INFO+1];
+	char cpuName[MAX_INFO+1];
+	char cpuUsage[MAX_CPU_INFO];
 
 	getCPUInfo(cpuName);
 	getHostname(hostname);
 	
 	int mySocket = socket(AF_INET, SOCK_STREAM, 0);
-	if (mySocket == -1)
+	if (mySocket <= 0)
 	{
 		fprintf(stderr, "ERROR: Cannot open new socket!\n");
 		exit(1);
@@ -131,7 +138,7 @@ int main(int argc, char *argv[])
 	// Set options on socket
 	const int enabled = 1;
 	int err = setsockopt(mySocket, SOL_SOCKET, SO_REUSEADDR|SO_REUSEPORT, &enabled, sizeof(enabled));
-	if (err == -1)
+	if (err < 0)
 	{
 		fprintf(stderr, "ERROR: Cannot set options on socket\n");
 		exit(1);
@@ -145,9 +152,9 @@ int main(int argc, char *argv[])
 	
 	// Binding
 	err = bind(mySocket, (struct sockaddr *)&mySocketAddr, sizeof(mySocketAddr));
-	if (err == -1) 
+	if (err < 0) 
 	{
-		fprintf(stderr, "ERROR: Binding!");
+		fprintf(stderr, "ERROR: Binding!\n");
 		exit(1);
 	}
 
@@ -155,46 +162,43 @@ int main(int argc, char *argv[])
 	err = listen(mySocket, 5);
 	if (err == -1)
 	{
-		fprintf(stderr, "ERROR: Cannot listen for connections on a socket!");
+		fprintf(stderr, "ERROR: Cannot listen for connections on a socket!\n");
 		exit(1);
 	}
 	
-	char clientMessage[2001];
-	char goodHeader[50] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain;\r\n\r\n";
-	char messageToSend[501] = "\0";
+	char clientMessage[MAX_MSG+1];
+	char goodHeader[100] = "HTTP/1.1 200 OK\r\nContent-Length: %ld\r\nContent-Type: text/plain;\r\n\r\n%s";
+	char messageToSend[MAX_MSG+1] = "\0";
 	int length = sizeof(mySocketAddr);
 	
 	while (1)
 	{
 		// Client Socket
 		int clientSocket = accept(mySocket, (struct sockaddr *)&mySocketAddr, (socklen_t *)&length);
-		if (clientSocket == -1)
+		if (clientSocket <= 0)
 		{
 			fprintf(stderr, "Accept connection failed\n");
 			exit(1);
 		}
-		err = recv(clientSocket, clientMessage, 2000, 0);
+		err = recv(clientSocket, clientMessage, MAX_MSG, 0);
 
 		// Requests - hostname, load, cpu-name, bad request
 		if (strncmp(clientMessage, "GET /hostname ", 14) == 0) 
 		{
-			strcat(messageToSend, goodHeader);
-			strcat(messageToSend, hostname);
+			sprintf(messageToSend, goodHeader, strlen(hostname), hostname);
 		}
 		else if (strncmp(clientMessage, "GET /load ", 10) == 0) 
 		{
-			strcat(messageToSend, goodHeader);
 			getCPUusage(cpuUsage);
-			strcat(messageToSend, cpuUsage);
+			sprintf(messageToSend, goodHeader, strlen(cpuUsage), cpuUsage);
 		}
 		else if (strncmp(clientMessage, "GET /cpu-name ", 14) == 0)
 		{	
-			strcat(messageToSend, goodHeader);
-			strcat(messageToSend, cpuName);
+			sprintf(messageToSend, goodHeader, strlen(cpuName), cpuName);
 		}
 		else
 		{
-			sprintf(messageToSend, "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain;\r\n\r\nBad Request");	
+			sprintf(messageToSend, "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain;\r\nContent-Length: 11\r\n\r\nBad Request");
 		}
 		
 		// Send message to client
@@ -202,7 +206,7 @@ int main(int argc, char *argv[])
 		// Close connection with client
 		close(clientSocket);
 		// Clear messageToSend buffer
-		memset(messageToSend, '\0', 501);
+		memset(messageToSend, '\0', MAX_MSG+1);
 	}
 
 	close(mySocket);
